@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { UserRole, Credentials, MOCK_CREDENTIALS } from '@/types/auth'
+import { UserRole, Credentials } from '@/types/auth'
 
 const DUMMY_CREDENTIALS = {
   user: { username: 'user', password: 'user123' },
@@ -19,6 +19,7 @@ export function Navbar() {
     password: ''
   })
   const [error, setError] = useState('')
+  const [username, setUsername] = useState('')
 
   useEffect(() => {
     const isAuth = localStorage.getItem('isLoggedIn') === 'true'
@@ -26,6 +27,7 @@ export function Navbar() {
     const username = localStorage.getItem('username') || ''
     setIsLoggedIn(isAuth)
     setUserRole(role)
+    setUsername(username)
   }, [])
 
   const handleLogin = (e: React.FormEvent) => {
@@ -56,6 +58,7 @@ export function Navbar() {
   const loginSuccess = (role: 'user' | 'agent') => {
     localStorage.setItem('isLoggedIn', 'true')
     localStorage.setItem('userRole', role)
+    localStorage.setItem('username', username)
     setIsLoggedIn(true)
     setUserRole(role)
     window.location.href = '/calculator'
@@ -107,7 +110,7 @@ export function Navbar() {
               </form>
             ) : (
               <>
-                <span>Logged in as {userRole}</span>
+                <span>Logged in as {userRole} ({username})</span>
                 <button
                   onClick={handleLogout}
                   className="bg-red-500 hover:bg-red-600 px-4 py-2 rounded"

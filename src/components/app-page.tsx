@@ -283,12 +283,6 @@ function LanguageSelector({
   )
 }
 
-// Add this at the top with other constants
-const DUMMY_CREDENTIALS = {
-  user: { username: 'user', password: 'user123' },
-  agent: { username: 'agent', password: 'agent123' }
-}
-
 export function Page() {
   // Authentication state
   const [isAuth, setIsAuth] = useState(false)
@@ -649,6 +643,35 @@ export function Page() {
 
     checkAuth()
   }, [])
+
+  // Add timestamp update
+  useEffect(() => {
+    const updateTimestamp = () => {
+      const now = new Date()
+      setTimestamp(now.toLocaleString())
+    }
+
+    updateTimestamp()
+    const interval = setInterval(updateTimestamp, 1000)
+
+    return () => clearInterval(interval)
+  }, [])
+
+  // Add loading check
+  if (isLoading) {
+    return <div>Loading...</div>
+  }
+
+  // Add auth check
+  if (!isAuth || !userRole) {
+    return (
+      <div className="text-center">
+        <p className="text-xl text-red-600">
+          Please log in to access the calculator.
+        </p>
+      </div>
+    )
+  }
 
   return (
     <div className="container mx-auto bg-white rounded-3xl shadow-lg p-8 mt-12">
