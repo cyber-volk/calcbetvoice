@@ -1,0 +1,282 @@
+Calculator App Requirements
+=========================
+
+1. Role-Based Authentication
+---------------------------
+1.1 User Roles
+- Admin: Manages agents and system configuration
+- Agent: Manages users and validates forms
+- User: Creates and manages calculations
+
+1.2 Access Control
+- Admin credentials: username="admin", password="admin123"
+- Agent credentials: username="agent", password="agent123"
+- User credentials: username="user", password="user123"
+- JWT-based authentication
+- Session management and timeout
+- Password encryption
+
+1.3 Role-Specific Features
+- Admin: Agent management, system oversight, analytics
+- Agent: User management, form validation, statistics view, personal calculator
+- User: Calculator access, site management, form history
+
+2. Admin Dashboard
+-----------------
+2.1 Agent Management
+- Create new agents with customizable user limits
+- Set maximum number of users per agent
+- View agent statistics and user counts
+- Delete agents and their associated users
+- Edit agent user limits
+- Agent activity monitoring
+
+2.2 System Overview
+- Total agents in system
+- Total users across all agents
+- System usage statistics
+- Real-time analytics
+- Performance metrics
+- Error logs
+
+3. Agent Dashboard (Enhanced)
+-----------------
+3.1 User Management
+- Create users within allocated limit
+- View user statistics and activity
+- Delete users and their data
+- Monitor user form submissions
+- User activity timeline
+- Bulk user operations
+
+3.2 Form Validation
+- View all user forms requiring validation
+- Validate/reject form submissions with comments
+- Add validation timestamps
+- Track validation history
+- Validation criteria checklist
+- Automated validation rules
+
+3.3 Statistics & Analytics
+- Per-user statistics
+- Site-specific metrics
+- Form validation status
+- User activity heatmaps
+- Performance trends
+- Export capabilities
+
+3.4 Personal Calculator
+- Access to personal calculator instance
+- Separate from user management
+- Personal form history
+- Statistics tracking
+
+4. User Features
+---------------
+4.1 Site Management
+- Multiple sites support
+- Site statistics tracking
+- Form organization by site
+- Site-specific calculations
+- Site templates
+- Bulk operations
+
+4.2 Form Management
+- Multiple forms per site
+- Form history tracking
+- Form validation status
+- Form statistics
+- Form templates
+- Batch processing
+
+5. Calculator Interface
+----------------------
+5.1 Header Section
+- Real-time timestamp display
+- Voice input language selector
+- Multiplier selector
+- Site selection
+- Quick actions menu
+- Keyboard shortcuts
+
+5.2 Input Fields
+- Fond (Fund)
+- Solde à l'instant (Current Balance)
+- Site (auto-filled from selection)
+- Solde de début (Starting Balance)
+- Input validation
+- Auto-formatting
+
+5.3 Data Tables
+- Credit management
+- Paid credit tracking
+- Expense tracking
+- Withdrawal management
+- Bulk entry support
+- Data import/export
+
+6. Voice Input System
+--------------------
+6.1 Language Support
+- Arabic (ar-SA)
+- French (fr-FR)
+- English (en-US)
+- Language-specific processing
+- Dialect detection
+- Accent adaptation
+
+6.2 Input Features
+- Number recognition
+- Text input
+- Mathematical operations
+- Multi-language support
+- Voice commands
+- Custom shortcuts
+
+7. Calculation Features
+----------------------
+7.1 Auto-Calculations
+- Table totals
+- Cross-reference validations
+- Balance checks
+- Final calculations
+- Real-time updates
+- Error detection
+
+7.2 Calculation Formula
+Formula: ((soldeDeDebut + totalRetrait) - soldeALinstant) * multiplier 
+        - totalRetraitPayee - totalDepense - totalCredit + totalCreditPayee + fond
+
+7.3 History Features
+- Form version history
+- Restore previous versions
+- Change tracking
+- History navigation
+- Audit trail
+- Version comparison
+
+8. Data Management
+-----------------
+8.1 Storage
+- Local storage persistence
+- Form data backup
+- User preferences
+- Session management
+- Data encryption
+- Offline support
+
+8.2 Statistics & Analytics
+- Site-level statistics
+- Form-level metrics
+- User activity tracking
+- Validation statistics
+- Performance analytics
+- Custom reports
+
+9. UI/UX Features
+----------------
+9.1 Responsive Design
+- Mobile-friendly interface
+- Tablet optimization
+- Desktop layout
+- Adaptive components
+- Touch support
+- Accessibility
+
+9.2 Navigation
+- Role-based navigation
+- Form navigation
+- Site navigation
+- History navigation
+- Breadcrumbs
+- Quick actions
+
+10. Security Features
+-------------------
+10.1 Access Control
+- Role-based permissions
+- Form validation rules
+- Data access restrictions
+- User isolation
+- API security
+- Rate limiting
+
+10.2 Data Validation
+- Input validation
+- Calculation verification
+- Form validation
+- User input sanitization
+- XSS prevention
+- CSRF protection
+
+11. Performance
+--------------
+11.1 Optimization
+- Efficient calculations
+- Smooth transitions
+- Quick form loading
+- Responsive UI
+- Caching
+- Lazy loading
+
+11.2 Data Handling
+- Efficient storage
+- Quick retrieval
+- History management
+- State management
+- Batch processing
+- Data compression
+
+12. Error Handling
+-----------------
+12.1 User Feedback
+- Input validation errors
+- Calculation errors
+- Permission errors
+- System status messages
+- Toast notifications
+- Error recovery
+
+12.2 System Recovery
+- Form auto-save
+- State recovery
+- Error logging
+- Fallback options
+- Data backup
+- Crash reporting
+
+13. Form Validation System
+------------------------
+13.1 Validation Rules
+- Required fields
+- Number range validation
+- Cross-field validation
+- Custom validation rules
+- Validation templates
+- Rule management
+
+13.2 Validation Process
+- Multi-step validation
+- Validation workflow
+- Approval chains
+- Validation history
+- Comment system
+- Status tracking
+
+14. User Activity Tracking
+------------------------
+14.1 Activity Logging
+- Form submissions
+- Calculations
+- Site changes
+- Login/logout events
+- Error events
+- System interactions
+
+14.2 Analytics
+- Usage patterns
+- Performance metrics
+- Error rates
+- User behavior
+- Custom reports
+- Data visualization

@@ -1,0 +1,196 @@
+import { Site, CalculationForm } from '@/types/site'
+import { FormValidation } from '@/types/auth'
+
+const STORAGE_KEY = 'calculator_data'
+
+interface StorageData {
+  sites: Site[]
+  currentSiteIndex: number
+  currentFormIndex: number
+}
+
+const DEFAULT_FORM: CalculationForm = {
+  id: 'default-form',
+  multiplier: '1.1',
+  fond: '',
+  soldeALinstant: '',
+  site: '',
+  soldeDeDebut: '',
+  creditRows: [{ totalClient: '', details: '', client: '' }],
+  creditPayeeRows: [{ totalPayee: '', details: '', client: '' }],
+  depenseRows: [{ totalDepense: '', details: '', client: '' }],
+  retraitRows: [{ retraitPayee: '', retrait: '', client: '' }],
+  result: '',
+  timestamp: new Date().toISOString(),
+  userId: 'default-user'
+}
+
+const DUMMY_DATA: StorageData = {
+  sites: [
+    {
+      id: 'site-1',
+      name: 'Site Principal',
+      userId: 'default-user',
+      forms: [
+        {
+          ...DEFAULT_FORM,
+          id: 'form-1',
+          site: 'Site Principal',
+          fond: '1000',
+          soldeDeDebut: '5000'
+        },
+        {
+          ...DEFAULT_FORM,
+          id: 'form-2',
+          site: 'Site Principal',
+          fond: '2000',
+          soldeDeDebut: '6000'
+        }
+      ],
+      statistics: {
+        totalForms: 2,
+        averageResult: 0,
+        lastUpdated: new Date().toISOString()
+      }
+    },
+    {
+      id: 'site-2',
+      name: 'Site Secondaire',
+      userId: 'default-user',
+      forms: [
+        {
+          ...DEFAULT_FORM,
+          id: 'form-3',
+          site: 'Site Secondaire',
+          fond: '3000',
+          soldeDeDebut: '7000'
+        }
+      ],
+      statistics: {
+        totalForms: 1,
+        averageResult: 0,
+        lastUpdated: new Date().toISOString()
+      }
+    }
+  ],
+  currentSiteIndex: 0,
+  currentFormIndex: 0
+}
+
+// Add fallback for NEXT_PUBLIC_BASE_URL
+const BASE_URL = process.env.NEXT_PUBLIC_BASE_URL || 'https://your-vercel-domain.vercel.app'
+
+export function loadData(): StorageData {
+  try {
+    const data = localStorage.getItem('calculatorData')
+    if (!data) return { sites: [], currentSiteIndex: 0, currentFormIndex: 0 }
+
+    const parsedData = JSON.parse(data)
+    // Migrate old validation format to new format
+    const migratedSites = parsedData.sites.map((site: Site) => ({
+      ...site,
+      forms: site.forms.map(migrateValidation)
+    }))
+
+    return {
+      ...parsedData,
+      sites: migratedSites
+    }
+  } catch (error) {
+    console.error('Error loading data:', error)
+    return { sites: [], currentSiteIndex: 0, currentFormIndex: 0 }
+  }
+}
+
+export function saveData(data: StorageData) {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(data))
+  } catch (error) {
+    console.error('Error saving data:', error)
+  }
+}
+
+export function updateSiteStatistics(site: Site): Site {
+  const totalResults = site.forms
+    .map(form => parseFloat(form.result.replace('Total: ', '') || '0'))
+    .filter(num => !isNaN(num))
+
+  const averageResult = totalResults.length > 0
+    ? totalResults.reduce((a, b) => a + b, 0) / totalResults.length
+    : 0
+
+  return {
+    ...site,
+    statistics: {
+      totalForms: site.forms.length,
+      averageResult,
+      lastUpdated: new Date().toISOString()
+    }
+  }
+}
+
+export { DEFAULT_FORM }
+
+// Add history storage
+export function saveFormHistory(formId: string, history: CalculationForm[]) {
+  try {
+    const key = `form_history_${formId}`
+    localStorage.setItem(key, JSON.stringify(history))
+    
+    // Save history index to maintain state between sessions
+    const historyIndex = history.length - 1
+    localStorage.setItem(`${key}_index`, historyIndex.toString())
+  } catch (error) {
+    console.error('Error saving form history:', error)
+  }
+}
+
+export function loadFormHistory(formId: string): {
+  history: CalculationForm[]
+  currentIndex: number
+} {
+  try {
+    const key = `form_history_${formId}`
+    const stored = localStorage.getItem(key)
+    const storedIndex = localStorage.getItem(`${key}_index`)
+    
+    const history = stored ? JSON.parse(stored) : []
+    const currentIndex = storedIndex ? parseInt(storedIndex) : history.length - 1
+
+    return { history, currentIndex }
+  } catch {
+    return { history: [], currentIndex: -1 }
+  }
+}
+
+export function clearFormHistory(formId: string) {
+  try {
+    const key = `form_history_${formId}`
+    localStorage.removeItem(key)
+    localStorage.removeItem(`${key}_index`)
+  } catch (error) {
+    console.error('Error clearing form history:', error)
+  }
+}
+
+export function migrateValidation(form: CalculationForm): CalculationForm {
+  if (!form.validation) {
+    return form
+  }
+
+  // Handle old validation format
+  if ('isValidated' in form.validation) {
+    const oldValidation = form.validation as any
+    const newValidation: FormValidation = {
+      formId: form.id,
+      status: oldValidation.isValidated ? 'approved' : 'pending',
+      validatedBy: oldValidation.validatedBy,
+      validatedAt: oldValidation.validatedAt,
+      comments: [],
+      rules: []
+    }
+    return { ...form, validation: newValidation }
+  }
+
+  return form
+}

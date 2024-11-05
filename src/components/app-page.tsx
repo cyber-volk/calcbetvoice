@@ -1,7 +1,17 @@
 'use client'
 
 import React, { useState, useEffect, useCallback } from 'react'
-import { Mic, Trash, Plus, Languages } from 'lucide-react'
+import { Mic, Trash, Plus, Languages, RotateCcw, History, Trash2 } from 'lucide-react'
+import { VoiceFeedback } from '@/components/voice/VoiceFeedback'
+import { VoiceInputButton } from '@/components/voice/VoiceInputButton'
+import { LanguageSelector } from '@/components/voice/LanguageSelector'
+import { useVoiceRecognition } from '@/hooks/useVoiceRecognition'
+import { VoiceLanguage } from '@/types/voice'
+import { SetStateCallback, UpdateRowCallback } from '@/types/callbacks'
+import { processVoiceInput } from '@/utils/voiceProcessor'
+import { MESSAGES } from '@/constants/voice'
+import { CalculationForm } from '@/types/site'
+import { CalculatorLayout } from '@/components/calculator/CalculatorLayout'
 
 type ErrorKeys = 'fond' | 'soldeALinstant' | 'soldeDeDebut' | 'credit' | 'creditPayee' | 'depense' | 'retrait'
 
@@ -38,252 +48,15 @@ type RowField = {
   retrait: keyof RetraitRow
 }
 
-// Move these functions outside the Page component
-const processVoiceInput = (transcript: string, isNumberField: boolean = true): string => {
-  if (!isNumberField) {
-    // For non-number fields (client names, site), return the raw transcript
-    return transcript.trim()
-  }
-
-  // Convert both Arabic and French number words to digits
-  const numberWords: { [key: string]: string } = {
-    // French numbers
-    'zéro': '0', 'un': '1', 'deux': '2', 'trois': '3', 'quatre': '4',
-    'cinq': '5', 'six': '6', 'sept': '7', 'huit': '8', 'neuf': '9',
-    'dix': '10', 'onze': '11', 'douze': '12', 'treize': '13', 'quatorze': '14',
-    'quinze': '15', 'seize': '16', 'vingt': '20', 'trente': '30',
-    'quarante': '40', 'cinquante': '50', 'soixante': '60',
-    'soixante-dix': '70', 'quatre-vingt': '80', 'quatre-vingt-dix': '90',
-    'cent': '100', 'cents': '100', 'mille': '1000',
-    
-    // Modern Arabic numbers as words
-    'صفر': '0', 'واحد': '1', 'اثنين': '2', 'ثلاثة': '3', 'اربعة': '4',
-    'خمسة': '5', 'ستة': '6', 'سبعة': '7', 'ثمانية': '8', 'تسعة': '9',
-    'عشرة': '10', 'عشرين': '20', 'ثلاثين': '30', 'اربعين': '40',
-    'خمسين': '50', 'ستين': '60', 'سبعين': '70', 'ثمانين': '80',
-    'تسعين': '90', 'مية': '100', 'الف': '1000'
-  }
-
-  // Clean up the transcript
-  let processed = transcript.toLowerCase().trim()
-
-  // Replace common speech recognition errors in both languages
-  const corrections: { [key: string]: string } = {
-    // French corrections
-    'virgule': '.',
-    'point': '.',
-    'plus': '+',
-    'et': '+',
-    'euro': '',
-    'euros': '',
-    'zéros': 'zéro',
-    'OK': 'ok',
-    
-    // Arabic corrections
-    'فاصلة': '.',
-    'نقطة': '.',
-    'زائد': '+',
-    'و': '+',
-    'دينار': '',
-    'دنانير': '',
-    'موافق': 'ok',
-    'نعم': 'ok'
-  }
-
-  // Convert Eastern Arabic numerals to Western Arabic numerals
-  const arabicToEnglishNumbers: { [key: string]: string } = {
-    '٠': '0', '١': '1', '٢': '2', '٣': '3', '٤': '4',
-    '٥': '5', '٦': '6', '٧': '7', '٨': '8', '٩': '9'
-  }
-
-  // Handle French compound numbers (e.g., "cinq cents" = 500)
-  const matches = processed.match(/(\w+)\s+cents?/g)
-  if (matches) {
-    matches.forEach(match => {
-      const [number] = match.split(/\s+/)
-      if (numberWords[number]) {
-        const value = parseInt(numberWords[number]) * 100
-        processed = processed.replace(match, value.toString())
-      }
-    })
-  }
-
-  // Convert Arabic numbers to English numbers
-  Object.entries(arabicToEnglishNumbers).forEach(([arabic, english]) => {
-    processed = processed.replace(new RegExp(arabic, 'g'), english)
-  })
-
-  // Apply corrections
-  Object.entries(corrections).forEach(([key, value]) => {
-    processed = processed.replace(new RegExp(key, 'g'), value)
-  })
-
-  // Convert number words to digits
-  Object.entries(numberWords).forEach(([word, digit]) => {
-    processed = processed.replace(new RegExp(`\\b${word}\\b`, 'g'), digit)
-  })
-
-  // Handle decimal numbers (both . and ,)
-  processed = processed.replace(/(\d+)[.,](\d+)/g, '$1.$2')
-
-  // Handle additions
-  processed = processed.replace(/(\d+)\s*\+\s*(\d+)/g, '$1+$2')
-
-  // For details field, preserve existing value
-  if (processed.includes('+')) {
-    return processed
-  }
-
-  // Clean up any remaining non-numeric characters except . and +
-  processed = processed.replace(/[^\d.+]/g, '')
-
-  return processed
+interface PageProps {
+  siteId: string
+  formId: string
+  initialData: CalculationForm
+  onFormUpdate: (form: CalculationForm) => void
+  onDeleteForm: () => void
 }
 
-// Add language-specific messages
-const MESSAGES = {
-  'none': {
-    listening: 'Listening...',
-    speak: 'Please speak clearly',
-    error: 'Voice recognition error. Please try again.'
-  },
-  'ar-SA': {
-    listening: 'جاري الاستماع...',
-    speak: 'تحدث بوضوح من فضلك',
-    error: 'خطأ في التعرف على الصوت. حاول مرة أخرى'
-  },
-  'fr-FR': {
-    listening: 'Écoute en cours...',
-    speak: 'Parlez clairement s\'il vous plaît',
-    error: 'Erreur de reconnaissance vocale. Veuillez réessayer.'
-  },
-  'en-US': {
-    listening: 'Listening...',
-    speak: 'Please speak clearly',
-    error: 'Voice recognition error. Please try again.'
-  }
-}
-
-// Update the VoiceFeedback component
-function VoiceFeedback({ 
-  isListening, 
-  language 
-}: { 
-  isListening: boolean
-  language: VoiceLanguage 
-}) {
-  if (!isListening) return null
-
-  const messages = MESSAGES[language]
-
-  return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-      <div className="bg-white p-6 rounded-lg shadow-xl">
-        <p className="text-lg mb-3">{messages.listening}</p>
-        <p className="text-sm text-gray-600 mb-3">
-          {messages.speak}
-        </p>
-        <div className="flex items-center justify-center space-x-2">
-          <div className="animate-pulse w-3 h-3 bg-red-500 rounded-full" />
-          <div className="animate-pulse w-3 h-3 bg-red-500 rounded-full delay-75" />
-          <div className="animate-pulse w-3 h-3 bg-red-500 rounded-full delay-150" />
-        </div>
-      </div>
-    </div>
-  )
-}
-
-// Update the VoiceInputButton component
-function VoiceInputButton({ 
-  onVoiceInput,
-  showButton,
-  voiceLanguage
-}: { 
-  onVoiceInput: () => void
-  showButton: boolean
-  voiceLanguage: VoiceLanguage
-}) {
-  if (!showButton || voiceLanguage === 'none') return null
-
-  return (
-    <button
-      type="button"
-      onClick={onVoiceInput}
-      className="absolute right-2 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600 transition-colors"
-      title="Click to use voice input"
-    >
-      <Mic size={20} />
-    </button>
-  )
-}
-
-// Update the type definitions at the top
-type SetStateCallback = (value: string) => void
-type UpdateRowCallback = (value: string) => void
-
-// Add this type after your existing types
-type VoiceLanguage = 'none' | 'ar-SA' | 'fr-FR' | 'en-US'
-
-// Add this interface
-interface LanguageOption {
-  code: VoiceLanguage
-  label: string
-  flag: string
-}
-
-// Add this constant outside the component
-const LANGUAGE_OPTIONS: LanguageOption[] = [
-  { code: 'none', label: 'No Voice Input', flag: '🔇' },
-  { code: 'ar-SA', label: 'العربية', flag: '🇸🇦' },
-  { code: 'fr-FR', label: 'Français', flag: '🇫🇷' },
-  { code: 'en-US', label: 'English', flag: '🇺🇸' }
-]
-
-// Add this component outside the Page component
-function LanguageSelector({ 
-  selectedLanguage, 
-  onLanguageChange 
-}: { 
-  selectedLanguage: VoiceLanguage
-  onLanguageChange: (lang: VoiceLanguage) => void 
-}) {
-  const [isOpen, setIsOpen] = useState(false)
-
-  return (
-    <div className="relative">
-      <button
-        type="button"
-        onClick={() => setIsOpen(!isOpen)}
-        className="flex items-center gap-2 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-      >
-        <Languages size={20} />
-        <span>{LANGUAGE_OPTIONS.find(lang => lang.code === selectedLanguage)?.flag}</span>
-      </button>
-      
-      {isOpen && (
-        <div className="absolute top-full left-0 mt-1 bg-white border border-gray-300 rounded-md shadow-lg z-50">
-          {LANGUAGE_OPTIONS.map((lang) => (
-            <button
-              key={lang.code}
-              onClick={() => {
-                onLanguageChange(lang.code)
-                setIsOpen(false)
-              }}
-              className={`w-full flex items-center gap-2 px-4 py-2 hover:bg-gray-100 ${
-                selectedLanguage === lang.code ? 'bg-gray-50' : ''
-              }`}
-            >
-              <span>{lang.flag}</span>
-              <span>{lang.label}</span>
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
-  )
-}
-
-export function Page() {
+export function Page({ siteId, formId, initialData, onFormUpdate, onDeleteForm }: PageProps) {
   // Authentication state
   const [isAuth, setIsAuth] = useState(false)
   const [userRole, setUserRole] = useState<'user' | 'agent' | null>(null)
@@ -311,9 +84,92 @@ export function Page() {
     retrait: ''
   })
   const [isListening, setIsListening] = useState(false)
-
-  // Add this state for language selection
   const [voiceLanguage, setVoiceLanguage] = useState<VoiceLanguage>('none')
+  const [previousFormState, setPreviousFormState] = useState<CalculationForm | null>(null)
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
+
+  // Initialize form with initialData only when formId changes
+  useEffect(() => {
+    if (initialData) {
+      setMultiplier(initialData.multiplier)
+      setFond(initialData.fond)
+      setSoldeALinstant(initialData.soldeALinstant)
+      setSite(initialData.site)
+      setSoldeDeDebut(initialData.soldeDeDebut)
+      setCreditRows(initialData.creditRows)
+      setCreditPayeeRows(initialData.creditPayeeRows)
+      setDepenseRows(initialData.depenseRows)
+      setRetraitRows(initialData.retraitRows)
+      setResult(initialData.result)
+    }
+  }, [formId]) // Only run when formId changes
+
+  // Update parent component when form is calculated or reset
+  const updateParentForm = useCallback(() => {
+    const formData: CalculationForm = {
+      id: formId,
+      multiplier,
+      fond,
+      soldeALinstant,
+      site,
+      soldeDeDebut,
+      creditRows,
+      creditPayeeRows,
+      depenseRows,
+      retraitRows,
+      result,
+      timestamp: new Date().toISOString(),
+      userId: localStorage.getItem('userId') || 'default-user'
+    }
+    onFormUpdate(formData)
+  }, [
+    formId,
+    multiplier,
+    fond,
+    soldeALinstant,
+    site,
+    soldeDeDebut,
+    creditRows,
+    creditPayeeRows,
+    depenseRows,
+    retraitRows,
+    result,
+    onFormUpdate
+  ])
+
+  // Move all useEffect hooks to the top, before any conditional returns
+  useEffect(() => {
+    const checkAuth = () => {
+      try {
+        const isAuthenticated = localStorage.getItem('isLoggedIn') === 'true'
+        const role = localStorage.getItem('userRole') as 'user' | 'agent' | null
+        setIsAuth(isAuthenticated)
+        setUserRole(role)
+        setIsLoading(false)
+      } catch {
+        setIsAuth(false)
+        setUserRole(null)
+        setIsLoading(false)
+      }
+    }
+    checkAuth()
+  }, [])
+
+  useEffect(() => {
+    const updateTimestamp = () => {
+      const now = new Date()
+      setTimestamp(now.toLocaleString())
+    }
+    updateTimestamp()
+    const interval = setInterval(updateTimestamp, 1000)
+    return () => clearInterval(interval)
+  }, [])
+
+  useEffect(() => {
+    // Here you can load site-specific data when siteId changes
+    console.log('Site ID changed:', siteId)
+    // TODO: Load site-specific form data
+  }, [siteId])
 
   // Update handleVoiceInput to use the selected language
   const handleVoiceInput = useCallback((callback: SetStateCallback, isNumberField: boolean = true) => {
@@ -516,6 +372,7 @@ export function Page() {
     }
   }
 
+  // Modify handleCalculate to update parent after calculation
   const handleCalculate = (e: React.FormEvent) => {
     e.preventDefault()
 
@@ -541,9 +398,28 @@ export function Page() {
 
     const total = ((validatedSoldeDeDebut + totalRetrait) - validatedSoldeALinstant) * selectedMultiplier - totalRetraitPayee - totalDepense - totalCredit + totalCreditPayee + validatedFond
 
-    setResult(`Total: ${total.toFixed(1)}`)
+    const resultString = `Total: ${total.toFixed(1)}`
+    setResult(resultString)
 
     checkClientBalances()
+    
+    // Immediately update parent with new result
+    const formData: CalculationForm = {
+      id: formId,
+      multiplier,
+      fond,
+      soldeALinstant,
+      site,
+      soldeDeDebut,
+      creditRows,
+      creditPayeeRows,
+      depenseRows,
+      retraitRows,
+      result: resultString,  // Use the new result
+      timestamp: new Date().toISOString(),
+      userId: localStorage.getItem('userId') || 'default-user'
+    }
+    onFormUpdate(formData)
   }
 
   const checkClientBalances = () => {
@@ -600,7 +476,26 @@ export function Page() {
     setCreditRows(newCreditRows)
   }
 
+  // Modify handleReset to update parent after reset
   const handleReset = () => {
+    // Store current state before resetting
+    setPreviousFormState({
+      id: formId,
+      multiplier,
+      fond,
+      soldeALinstant,
+      site,
+      soldeDeDebut,
+      creditRows: [...creditRows],
+      creditPayeeRows: [...creditPayeeRows],
+      depenseRows: [...depenseRows],
+      retraitRows: [...retraitRows],
+      result,
+      timestamp: new Date().toISOString(),
+      userId: localStorage.getItem('userId') || 'default-user'
+    })
+
+    // Reset form
     setMultiplier('1.1')
     setFond('')
     setSoldeALinstant('')
@@ -611,7 +506,7 @@ export function Page() {
     setDepenseRows([{ totalDepense: '', details: '', client: '' }])
     setRetraitRows([{ retraitPayee: '', retrait: '', client: '' }])
     setResult('')
-    setVoiceLanguage('none') // Reset voice language
+    setVoiceLanguage('none')
     setErrors({
       fond: '',
       soldeALinstant: '',
@@ -623,39 +518,27 @@ export function Page() {
     })
   }
 
-  // Update the useEffect for authentication check
-  useEffect(() => {
-    const checkAuth = () => {
-      try {
-        // Simple localStorage check without error handling
-        const isAuthenticated = localStorage.getItem('isLoggedIn') === 'true'
-        const role = localStorage.getItem('userRole') as 'user' | 'agent' | null
-        setIsAuth(isAuthenticated)
-        setUserRole(role)
-        setIsLoading(false)
-      } catch {
-        // If anything fails, just set to not authenticated
-        setIsAuth(false)
-        setUserRole(null)
-        setIsLoading(false)
-      }
+  const handleRestore = () => {
+    if (!previousFormState) {
+      alert("No previous state to restore")
+      return
     }
 
-    checkAuth()
-  }, [])
+    // Restore previous state
+    setMultiplier(previousFormState.multiplier)
+    setFond(previousFormState.fond)
+    setSoldeALinstant(previousFormState.soldeALinstant)
+    setSite(previousFormState.site)
+    setSoldeDeDebut(previousFormState.soldeDeDebut)
+    setCreditRows(previousFormState.creditRows)
+    setCreditPayeeRows(previousFormState.creditPayeeRows)
+    setDepenseRows(previousFormState.depenseRows)
+    setRetraitRows(previousFormState.retraitRows)
+    setResult(previousFormState.result)
 
-  // Add timestamp update
-  useEffect(() => {
-    const updateTimestamp = () => {
-      const now = new Date()
-      setTimestamp(now.toLocaleString())
-    }
-
-    updateTimestamp()
-    const interval = setInterval(updateTimestamp, 1000)
-
-    return () => clearInterval(interval)
-  }, [])
+    // Clear previous state after restore
+    setPreviousFormState(null)
+  }
 
   // Add loading check
   if (isLoading) {
@@ -674,452 +557,553 @@ export function Page() {
   }
 
   return (
-    <div className="container mx-auto bg-white rounded-3xl shadow-lg p-8 mt-12">
+    <div className="container mx-auto bg-white rounded-3xl shadow-lg p-4 md:p-8 mt-6 md:mt-12">
       <VoiceFeedback isListening={isListening} language={voiceLanguage} />
-      <div id="timestamp" className="text-center mb-4 text-xl text-gray-600">{timestamp}</div>
-      <form onSubmit={handleCalculate}>
-        <div className="grid grid-cols-1 md:grid-cols-6 gap-4 mb-6">
-          <div>
-            <LanguageSelector
-              selectedLanguage={voiceLanguage}
-              onLanguageChange={setVoiceLanguage}
+      
+      {/* Mobile-friendly header */}
+      <div className="flex flex-col md:flex-row items-center justify-between gap-4 mb-6">
+        <div id="timestamp" className="text-center text-lg md:text-xl text-gray-600">
+          {timestamp}
+        </div>
+        <div className="flex items-center gap-4 w-full md:w-auto">
+          <LanguageSelector
+            selectedLanguage={voiceLanguage}
+            onLanguageChange={setVoiceLanguage}
+          />
+          <select
+            id="multiplierSelect"
+            value={multiplier}
+            onChange={(e) => setMultiplier(e.target.value)}
+            className="w-full md:w-auto px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+          >
+            <option value="1">1</option>
+            <option value="1.1">1.1</option>
+            <option value="1.2">1.2</option>
+            <option value="1.3">1.3</option>
+          </select>
+        </div>
+      </div>
+
+      <form onSubmit={handleCalculate} className="space-y-6">
+        {/* Mobile-friendly input grid */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+          <div className="relative">
+            <input
+              type="number"
+              id="fond"
+              value={fond}
+              onChange={(e) => setFond(e.target.value)}
+              placeholder="Fond"
+              className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+            <VoiceInputButton 
+              onVoiceInput={() => handleVoiceInputWithFeedback(setFond)}
+              showButton={voiceLanguage !== 'none'}
+              voiceLanguage={voiceLanguage}
+            />
+            {errors.fond && (
+              <span className="text-red-500 text-sm mt-1 block">
+                {errors.fond}
+              </span>
+            )}
+          </div>
+
+          <div className="relative">
+            <input
+              type="text"
+              id="solde_a_linstant"
+              value={soldeALinstant}
+              onChange={(e) => setSoldeALinstant(e.target.value)}
+              placeholder="Solde à l'instant"
+              className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+            <VoiceInputButton 
+              onVoiceInput={() => handleVoiceInputWithFeedback(setSoldeALinstant)}
+              showButton={voiceLanguage !== 'none'}
+              voiceLanguage={voiceLanguage}
+            />
+            {errors.soldeALinstant && (
+              <span className="text-red-500 text-sm mt-1 block">
+                {errors.soldeALinstant}
+              </span>
+            )}
+          </div>
+
+          <div className="relative">
+            <input
+              type="text"
+              value={site}
+              readOnly
+              className="w-full px-4 py-3 border border-gray-300 rounded-lg bg-gray-50"
+              placeholder="Site"
+            />
+            <VoiceInputButton 
+              onVoiceInput={() => handleVoiceInputWithFeedback(setSite, false)}
+              showButton={voiceLanguage !== 'none'}
+              voiceLanguage={voiceLanguage}
             />
           </div>
-          <div>
-            <select
-              id="multiplierSelect"
-              value={multiplier}
-              onChange={(e) => setMultiplier(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+
+          <div className="relative">
+            <input
+              type="text"
+              id="solde_de_debut"
+              value={soldeDeDebut}
+              onChange={(e) => setSoldeDeDebut(e.target.value)}
+              placeholder="Solde de début"
+              className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              required
+            />
+            <VoiceInputButton 
+              onVoiceInput={() => handleVoiceInputWithFeedback(setSoldeDeDebut)}
+              showButton={voiceLanguage !== 'none'}
+              voiceLanguage={voiceLanguage}
+            />
+            {errors.soldeDeDebut && (
+              <span className="text-red-500 text-sm mt-1 block">
+                {errors.soldeDeDebut}
+              </span>
+            )}
+          </div>
+        </div>
+
+        {/* Mobile-friendly tables */}
+        <div className="overflow-x-auto -mx-4 md:mx-0">
+          <div className="min-w-[768px] p-4">
+            {/* Credit Table */}
+            <div className="mb-6">
+              <label className="block text-lg font-medium text-gray-700 mb-2">
+                Crédit
+              </label>
+              <table className="w-full border-collapse border border-gray-300 rounded-lg overflow-hidden">
+                <thead>
+                  <tr className="bg-gray-100">
+                    <th className="border border-gray-300 px-4 py-2"></th>
+                    <th className="border border-gray-300 px-4 py-2">Total Client</th>
+                    <th className="border border-gray-300 px-4 py-2">Détailles</th>
+                    <th className="border border-gray-300 px-4 py-2">Client</th>
+                    <th className="border border-gray-300 px-4 py-2"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {creditRows.map((row, index) => (
+                    <tr key={index}>
+                      <td className="border border-gray-300 px-4 py-2">
+                        <button type="button" onClick={() => removeRow('credit', index)} className="text-red-500 hover:text-red-700">
+                          <Trash size={20} />
+                        </button>
+                      </td>
+                      <td className="border border-gray-300 px-4 py-2">
+                        <input
+                          type="number"
+                          value={row.totalClient}
+                          readOnly
+                          className="w-full px-2 py-1 border-none bg-gray-100"
+                        />
+                      </td>
+                      <td className="border border-gray-300 px-4 py-2">
+                        <div className="relative">
+                          <input
+                            type="text"
+                            value={row.details}
+                            onChange={(e) => updateRow('credit', index, 'details', e.target.value)}
+                            className="w-full px-2 py-1 pr-8 border-none"
+                          />
+                          <VoiceInputButton 
+                            onVoiceInput={() => handleVoiceInputWithFeedback(
+                              (value: string) => updateRow('credit', index, 'details', value),
+                              true
+                            )}
+                            showButton={voiceLanguage !== 'none'}
+                            voiceLanguage={voiceLanguage}
+                          />
+                        </div>
+                      </td>
+                      <td className="border border-gray-300 px-4 py-2">
+                        <div className="relative">
+                          <input
+                            type="text"
+                            value={row.client}
+                            onChange={(e) => updateRow('credit', index, 'client', e.target.value)}
+                            className="w-full px-2 py-1 pr-8 border-none"
+                          />
+                          <VoiceInputButton 
+                            onVoiceInput={() => handleVoiceInputWithFeedback(
+                              (value: string) => updateRow('credit', index, 'client', value),
+                              false
+                            )}
+                            showButton={voiceLanguage !== 'none'}
+                            voiceLanguage={voiceLanguage}
+                          />
+                        </div>
+                      </td>
+                      <td className="border border-gray-300 px-4 py-2">
+                        <button type="button" onClick={() => addRow('credit')} className="text-green-500 hover:text-green-700">
+                          <Plus size={20} />
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              {errors.credit && (
+                <span className="text-red-500 text-sm mt-1 block">
+                  {errors.credit}
+                </span>
+              )}
+            </div>
+
+            {/* Credit Payée Table */}
+            <div className="mb-6">
+              <label className="block text-lg font-medium text-gray-700 mb-2">
+                Crédit Payée
+              </label>
+              <table className="w-full border-collapse border border-gray-300 rounded-lg overflow-hidden">
+                <thead>
+                  <tr className="bg-gray-100">
+                    <th className="border border-gray-300 px-4 py-2"></th>
+                    <th className="border border-gray-300 px-4 py-2">Total Payée</th>
+                    <th className="border border-gray-300 px-4 py-2">Détailles</th>
+                    <th className="border border-gray-300 px-4 py-2">Client</th>
+                    <th className="border border-gray-300 px-4 py-2"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {creditPayeeRows.map((row, index) => (
+                    <tr key={index}>
+                      <td className="border border-gray-300 px-4 py-2">
+                        <button type="button" onClick={() => removeRow('creditPayee', index)} className="text-red-500 hover:text-red-700">
+                          <Trash size={20} />
+                        </button>
+                      </td>
+                      <td className="border border-gray-300 px-4 py-2">
+                        <input
+                          type="number"
+                          value={row.totalPayee}
+                          readOnly
+                          className="w-full px-2 py-1 border-none bg-gray-100"
+                        />
+                      </td>
+                      <td className="border border-gray-300 px-4 py-2">
+                        <div className="relative">
+                          <input
+                            type="text"
+                            value={row.details}
+                            onChange={(e) => updateRow('creditPayee', index, 'details', e.target.value)}
+                            className="w-full px-2 py-1 pr-8 border-none"
+                          />
+                          <VoiceInputButton 
+                            onVoiceInput={() => handleVoiceInputWithFeedback(
+                              (value: string) => updateRow('creditPayee', index, 'details', value),
+                              true
+                            )}
+                            showButton={voiceLanguage !== 'none'}
+                            voiceLanguage={voiceLanguage}
+                          />
+                        </div>
+                      </td>
+                      <td className="border border-gray-300 px-4 py-2">
+                        <div className="relative">
+                          <input
+                            type="text"
+                            value={row.client}
+                            onChange={(e) => updateRow('creditPayee', index, 'client', e.target.value)}
+                            className="w-full px-2 py-1 pr-8 border-none"
+                          />
+                          <VoiceInputButton 
+                            onVoiceInput={() => handleVoiceInputWithFeedback(
+                              (value: string) => updateRow('creditPayee', index, 'client', value),
+                              false
+                            )}
+                            showButton={voiceLanguage !== 'none'}
+                            voiceLanguage={voiceLanguage}
+                          />
+                        </div>
+                      </td>
+                      <td className="border border-gray-300 px-4 py-2">
+                        <button type="button" onClick={() => addRow('creditPayee')} className="text-green-500 hover:text-green-700">
+                          <Plus size={20} />
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              {errors.creditPayee && (
+                <span className="text-red-500 text-sm mt-1 block">
+                  {errors.creditPayee}
+                </span>
+              )}
+            </div>
+
+            {/* Dpense Table */}
+            <div className="mb-6">
+              <label className="block text-lg font-medium text-gray-700 mb-2">
+                Dpense
+              </label>
+              <table className="w-full border-collapse border border-gray-300 rounded-lg overflow-hidden">
+                <thead>
+                  <tr className="bg-gray-100">
+                    <th className="border border-gray-300 px-4 py-2"></th>
+                    <th className="border border-gray-300 px-4 py-2">Total Dépense</th>
+                    <th className="border border-gray-300 px-4 py-2">Détailles</th>
+                    <th className="border border-gray-300 px-4 py-2">Client</th>
+                    <th className="border border-gray-300 px-4 py-2"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {depenseRows.map((row, index) => (
+                    <tr key={index}>
+                      <td className="border border-gray-300 px-4 py-2">
+                        <button type="button" onClick={() => removeRow('depense', index)} className="text-red-500 hover:text-red-700">
+                          <Trash size={20} />
+                        </button>
+                      </td>
+                      <td className="border border-gray-300 px-4 py-2">
+                        <input
+                          type="number"
+                          value={row.totalDepense}
+                          readOnly
+                          className="w-full px-2 py-1 border-none bg-gray-100"
+                        />
+                      </td>
+                      <td className="border border-gray-300 px-4 py-2">
+                        <div className="relative">
+                          <input
+                            type="text"
+                            value={row.details}
+                            onChange={(e) => updateRow('depense', index, 'details', e.target.value)}
+                            className="w-full px-2 py-1 pr-8 border-none"
+                          />
+                          <VoiceInputButton 
+                            onVoiceInput={() => handleVoiceInputWithFeedback(
+                              (value: string) => updateRow('depense', index, 'details', value),
+                              true
+                            )}
+                            showButton={voiceLanguage !== 'none'}
+                            voiceLanguage={voiceLanguage}
+                          />
+                        </div>
+                      </td>
+                      <td className="border border-gray-300 px-4 py-2">
+                        <div className="relative">
+                          <input
+                            type="text"
+                            value={row.client}
+                            onChange={(e) => updateRow('depense', index, 'client', e.target.value)}
+                            className="w-full px-2 py-1 pr-8 border-none"
+                          />
+                          <VoiceInputButton 
+                            onVoiceInput={() => handleVoiceInputWithFeedback(
+                              (value: string) => updateRow('depense', index, 'client', value),
+                              false
+                            )}
+                            showButton={voiceLanguage !== 'none'}
+                            voiceLanguage={voiceLanguage}
+                          />
+                        </div>
+                      </td>
+                      <td className="border border-gray-300 px-4 py-2">
+                        <button type="button" onClick={() => addRow('depense')} className="text-green-500 hover:text-green-700">
+                          <Plus size={20} />
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              {errors.depense && (
+                <span className="text-red-500 text-sm mt-1 block">
+                  {errors.depense}
+                </span>
+              )}
+            </div>
+
+            {/* Retrait Table */}
+            <div className="mb-6">
+              <label className="block text-lg font-medium text-gray-700 mb-2">
+                Retrait
+              </label>
+              <table className="w-full border-collapse border border-gray-300 rounded-lg overflow-hidden">
+                <thead>
+                  <tr className="bg-gray-100">
+                    <th className="border border-gray-300 px-4 py-2"></th>
+                    <th className="border border-gray-300 px-4 py-2">Retrait Payée</th>
+                    <th className="border border-gray-300 px-4 py-2">Retrait</th>
+                    <th className="border border-gray-300 px-4 py-2">Client</th>
+                    <th className="border border-gray-300 px-4 py-2"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {retraitRows.map((row, index) => (
+                    <tr key={index}>
+                      <td className="border border-gray-300 px-4 py-2">
+                        <button type="button" onClick={() => removeRow('retrait', index)} className="text-red-500 hover:text-red-700">
+                          <Trash size={20} />
+                        </button>
+                      </td>
+                      <td className="border border-gray-300 px-4 py-2">
+                        <div className="relative">
+                          <input
+                            type="text"
+                            value={row.retraitPayee}
+                            onChange={(e) => updateRow('retrait', index, 'retraitPayee', e.target.value)}
+                            className="w-full px-2 py-1 pr-8 border-none"
+                          />
+                          <VoiceInputButton 
+                            onVoiceInput={() => handleVoiceInputWithFeedback(
+                              (value: string) => updateRow('retrait', index, 'retraitPayee', value),
+                              true
+                            )}
+                            showButton={voiceLanguage !== 'none'}
+                            voiceLanguage={voiceLanguage}
+                          />
+                        </div>
+                      </td>
+                      <td className="border border-gray-300 px-4 py-2">
+                        <div className="relative">
+                          <input
+                            type="text"
+                            value={row.retrait}
+                            onChange={(e) => updateRow('retrait', index, 'retrait', e.target.value)}
+                            className="w-full px-2 py-1 pr-8 border-none"
+                          />
+                          <VoiceInputButton 
+                            onVoiceInput={() => handleVoiceInputWithFeedback(
+                              (value: string) => updateRow('retrait', index, 'retrait', value),
+                              true
+                            )}
+                            showButton={voiceLanguage !== 'none'}
+                            voiceLanguage={voiceLanguage}
+                          />
+                        </div>
+                      </td>
+                      <td className="border border-gray-300 px-4 py-2">
+                        <div className="relative">
+                          <input
+                            type="text"
+                            value={row.client}
+                            onChange={(e) => updateRow('retrait', index, 'client', e.target.value)}
+                            className="w-full px-2 py-1 pr-8 border-none"
+                          />
+                          <VoiceInputButton 
+                            onVoiceInput={() => handleVoiceInputWithFeedback(
+                              (value: string) => updateRow('retrait', index, 'client', value),
+                              false
+                            )}
+                            showButton={voiceLanguage !== 'none'}
+                            voiceLanguage={voiceLanguage}
+                          />
+                        </div>
+                      </td>
+                      <td className="border border-gray-300 px-4 py-2">
+                        <button type="button" onClick={() => addRow('retrait')} className="text-green-500 hover:text-green-700">
+                          <Plus size={20} />
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              <div className="flex justify-between mt-2">
+                <div>
+                  <strong>Total Retrait: </strong>
+                  <span id="totalRetrait">
+                    {retraitRows.reduce((total, row) => total + parseFloat(row.retrait || '0'), 0).toFixed(1)}
+                  </span>
+                </div>
+                <div>
+                  <strong>Total Retrait Payée: </strong>
+                  <span id="totalRetraitPayee">
+                    {retraitRows.reduce((total, row) => {
+                      if (row.retraitPayee === 'OK') {
+                        return total + parseFloat(row.retrait || '0')
+                      }
+                      return total + parseFloat(row.retraitPayee || '0')
+                    }, 0).toFixed(1)}
+                  </span>
+                </div>
+              </div>
+              {errors.retrait && (
+                <span className="text-red-500 text-sm mt-1 block">
+                  {errors.retrait}
+                </span>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* Mobile-friendly action buttons */}
+        <div className="fixed bottom-0 left-0 right-0 md:relative bg-white border-t md:border-t-0 p-4 md:p-0">
+          <div className="flex items-center justify-between max-w-7xl mx-auto">
+            <button
+              type="button"
+              onClick={() => setShowDeleteConfirm(true)}
+              className="p-3 text-red-500 hover:text-red-700"
             >
-              <option value="1">1</option>
-              <option value="1.1">1.1</option>
-              <option value="1.2">1.2</option>
-              <option value="1.3">1.3</option>
-            </select>
-          </div>
-          <div>
-            <div className="relative">
-              <input
-                type="number"
-                id="fond"
-                value={fond}
-                onChange={(e) => setFond(e.target.value)}
-                placeholder="Fond"
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
-              <VoiceInputButton 
-                onVoiceInput={() => handleVoiceInputWithFeedback(setFond)}
-                showButton={voiceLanguage !== 'none'}
-                voiceLanguage={voiceLanguage}
-              />
-            </div>
-            {errors.fond && <span className="text-red-500 text-sm">{errors.fond}</span>}
-          </div>
-          <div>
-            <label htmlFor="solde_a_linstant" className="block text-sm font-medium text-gray-700 mb-1">Solde à l'instant</label>
-            <div className="relative">
-              <input
-                type="text"
-                id="solde_a_linstant"
-                value={soldeALinstant}
-                onChange={(e) => setSoldeALinstant(e.target.value)}
-                placeholder="Solde à l'instant"
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
-              <VoiceInputButton 
-                onVoiceInput={() => handleVoiceInputWithFeedback(setSoldeALinstant)}
-                showButton={voiceLanguage !== 'none'}
-                voiceLanguage={voiceLanguage}
-              />
-            </div>
-            {errors.soldeALinstant && <span className="text-red-500 text-sm">{errors.soldeALinstant}</span>}
-          </div>
-          <div>
-            <div className="relative">
-              <input
-                
-                type="text"
-                id="site"
-                value={site}
-                onChange={(e) => setSite(e.target.value)}
-                placeholder="Site"
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
-              <VoiceInputButton 
-                onVoiceInput={() => handleVoiceInputWithFeedback(setSite, false)}
-                showButton={voiceLanguage !== 'none'}
-                voiceLanguage={voiceLanguage}
-              />
-            </div>
-          </div>
-          <div>
-            <label htmlFor="solde_de_debut" className="block text-sm font-medium text-gray-700 mb-1">Solde de début</label>
-            <div className="relative">
-              <input
-                type="text"
-                id="solde_de_debut"
-                value={soldeDeDebut}
-                onChange={(e) => setSoldeDeDebut(e.target.value)}
-                placeholder="Solde de début"
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                required
-              />
-              <VoiceInputButton 
-                onVoiceInput={() => handleVoiceInputWithFeedback(setSoldeDeDebut)}
-                showButton={voiceLanguage !== 'none'}
-                voiceLanguage={voiceLanguage}
-              />
-            </div>
-            {errors.soldeDeDebut && <span className="text-red-500 text-sm">{errors.soldeDeDebut}</span>}
-          </div>
-        </div>
+              <Trash2 size={24} />
+            </button>
 
-        <div className="mb-6">
-          <label className="block text-lg font-medium text-gray-700 mb-2">Crédit</label>
-          <table className="w-full border-collapse border border-gray-300">
-            <thead>
-              <tr className="bg-gray-100">
-                <th className="border border-gray-300 px-4 py-2"></th>
-                <th className="border border-gray-300 px-4 py-2">Total Client</th>
-                <th className="border border-gray-300 px-4 py-2">Détailles</th>
-                <th className="border border-gray-300 px-4 py-2">Client</th>
-                <th className="border border-gray-300 px-4 py-2"></th>
-              </tr>
-            </thead>
-            <tbody>
-              {creditRows.map((row, index) => (
-                <tr key={index}>
-                  <td className="border border-gray-300 px-4 py-2">
-                    <button type="button" onClick={() => removeRow('credit', index)} className="text-red-500 hover:text-red-700">
-                      <Trash size={20} />
-                    </button>
-                  </td>
-                  <td className="border border-gray-300 px-4 py-2">
-                    <input
-                      type="number"
-                      value={row.totalClient}
-                      readOnly
-                      className="w-full px-2 py-1 border-none bg-gray-100"
-                    />
-                  </td>
-                  <td className="border border-gray-300 px-4 py-2">
-                    <div className="relative">
-                      <input
-                        type="text"
-                        value={row.details}
-                        onChange={(e) => updateRow('credit', index, 'details', e.target.value)}
-                        className="w-full px-2 py-1 pr-8 border-none"
-                      />
-                      <VoiceInputButton 
-                        onVoiceInput={() => handleVoiceInputWithFeedback(
-                          (value: string) => updateRow('credit', index, 'details', value),
-                          true
-                        )}
-                        showButton={voiceLanguage !== 'none'}
-                        voiceLanguage={voiceLanguage}
-                      />
-                    </div>
-                  </td>
-                  <td className="border border-gray-300 px-4 py-2">
-                    <div className="relative">
-                      <input
-                        type="text"
-                        value={row.client}
-                        onChange={(e) => updateRow('credit', index, 'client', e.target.value)}
-                        className="w-full px-2 py-1 pr-8 border-none"
-                      />
-                      <VoiceInputButton 
-                        onVoiceInput={() => handleVoiceInputWithFeedback(
-                          (value: string) => updateRow('credit', index, 'client', value),
-                          false
-                        )}
-                        showButton={voiceLanguage !== 'none'}
-                        voiceLanguage={voiceLanguage}
-                      />
-                    </div>
-                  </td>
-                  <td className="border border-gray-300 px-4 py-2">
-                    <button type="button" onClick={() => addRow('credit')} className="text-green-500 hover:text-green-700">
-                      <Plus size={20} />
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          {errors.credit && <span className="text-red-500 text-sm">{errors.credit}</span>}
-        </div>
+            <button
+              type="submit"
+              className="px-6 py-3 bg-blue-500 text-white rounded-full hover:bg-blue-600 font-medium"
+            >
+              Calcule
+            </button>
 
-        <div className="mb-6">
-          <label className="block text-lg font-medium text-gray-700 mb-2">Crédit Payée</label>
-          <table className="w-full border-collapse border border-gray-300">
-            <thead>
-              <tr className="bg-gray-100">
-                <th className="border border-gray-300 px-4 py-2"></th>
-                <th className="border border-gray-300 px-4 py-2">Total Payée</th>
-                <th className="border border-gray-300 px-4 py-2">Détailles</th>
-                <th className="border border-gray-300 px-4 py-2">Client</th>
-                <th className="border border-gray-300 px-4 py-2"></th>
-              </tr>
-            </thead>
-            <tbody>
-              {creditPayeeRows.map((row, index) => (
-                <tr key={index}>
-                  <td className="border border-gray-300 px-4 py-2">
-                    <button type="button" onClick={() => removeRow('creditPayee', index)} className="text-red-500 hover:text-red-700">
-                      <Trash size={20} />
-                    </button>
-                  </td>
-                  <td className="border border-gray-300 px-4 py-2">
-                    <input
-                      type="number"
-                      value={row.totalPayee}
-                      readOnly
-                      className="w-full px-2 py-1 border-none bg-gray-100"
-                    />
-                  </td>
-                  <td className="border border-gray-300 px-4 py-2">
-                    <div className="relative">
-                      <input
-                        type="text"
-                        value={row.details}
-                        onChange={(e) => updateRow('creditPayee', index, 'details', e.target.value)}
-                        className="w-full px-2 py-1 pr-8 border-none"
-                      />
-                      <VoiceInputButton 
-                        onVoiceInput={() => handleVoiceInputWithFeedback(
-                          (value: string) => updateRow('creditPayee', index, 'details', value),
-                          true
-                        )}
-                        showButton={voiceLanguage !== 'none'}
-                        voiceLanguage={voiceLanguage}
-                      />
-                    </div>
-                  </td>
-                  <td className="border border-gray-300 px-4 py-2">
-                    <div className="relative">
-                      <input
-                        type="text"
-                        value={row.client}
-                        onChange={(e) => updateRow('creditPayee', index, 'client', e.target.value)}
-                        className="w-full px-2 py-1 pr-8 border-none"
-                      />
-                      <VoiceInputButton 
-                        onVoiceInput={() => handleVoiceInputWithFeedback(
-                          (value: string) => updateRow('creditPayee', index, 'client', value),
-                          false
-                        )}
-                        showButton={voiceLanguage !== 'none'}
-                        voiceLanguage={voiceLanguage}
-                      />
-                    </div>
-                  </td>
-                  <td className="border border-gray-300 px-4 py-2">
-                    <button type="button" onClick={() => addRow('creditPayee')} className="text-green-500 hover:text-green-700">
-                      <Plus size={20} />
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          {errors.creditPayee && <span className="text-red-500 text-sm">{errors.creditPayee}</span>}
-        </div>
-
-        <div className="mb-6">
-          <label className="block text-lg font-medium text-gray-700 mb-2">Dépense</label>
-          <table className="w-full border-collapse border border-gray-300">
-            <thead>
-              <tr className="bg-gray-100">
-                <th className="border border-gray-300 px-4 py-2"></th>
-                <th className="border border-gray-300 px-4 py-2">Total Dépense</th>
-                <th className="border border-gray-300 px-4 py-2">Détailles</th>
-                <th className="border border-gray-300 px-4 py-2">Client</th>
-                <th className="border border-gray-300 px-4 py-2"></th>
-              </tr>
-            </thead>
-            <tbody>
-              {depenseRows.map((row, index) => (
-                <tr key={index}>
-                  <td className="border border-gray-300 px-4 py-2">
-                    <button type="button" onClick={() => removeRow('depense', index)} className="text-red-500 hover:text-red-700">
-                      <Trash size={20} />
-                    </button>
-                  </td>
-                  <td className="border border-gray-300 px-4 py-2">
-                    <input
-                      type="number"
-                      value={row.totalDepense}
-                      readOnly
-                      className="w-full px-2 py-1 border-none bg-gray-100"
-                    />
-                  </td>
-                  <td className="border border-gray-300 px-4 py-2">
-                    <div className="relative">
-                      <input
-                        type="text"
-                        value={row.details}
-                        onChange={(e) => updateRow('depense', index, 'details', e.target.value)}
-                        className="w-full px-2 py-1 pr-8 border-none"
-                      />
-                      <VoiceInputButton 
-                        onVoiceInput={() => handleVoiceInputWithFeedback(
-                          (value: string) => updateRow('depense', index, 'details', value),
-                          true
-                        )}
-                        showButton={voiceLanguage !== 'none'}
-                        voiceLanguage={voiceLanguage}
-                      />
-                    </div>
-                  </td>
-                  <td className="border border-gray-300 px-4 py-2">
-                    <div className="relative">
-                      <input
-                        type="text"
-                        value={row.client}
-                        onChange={(e) => updateRow('depense', index, 'client', e.target.value)}
-                        className="w-full px-2 py-1 pr-8 border-none"
-                      />
-                      <VoiceInputButton 
-                        onVoiceInput={() => handleVoiceInputWithFeedback(
-                          (value: string) => updateRow('depense', index, 'client', value),
-                          false
-                        )}
-                        showButton={voiceLanguage !== 'none'}
-                        voiceLanguage={voiceLanguage}
-                      />
-                    </div>
-                  </td>
-                  <td className="border border-gray-300 px-4 py-2">
-                    <button type="button" onClick={() => addRow('depense')} className="text-green-500 hover:text-green-700">
-                      <Plus size={20} />
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          {errors.depense && <span className="text-red-500 text-sm">{errors.depense}</span>}
-        </div>
-
-        <div className="mb-6">
-          <label className="block text-lg font-medium text-gray-700 mb-2">Retrait</label>
-          <table className="w-full border-collapse border border-gray-300">
-            <thead>
-              <tr className="bg-gray-100">
-                <th className="border border-gray-300 px-4 py-2"></th>
-                <th className="border border-gray-300 px-4 py-2">Retrait Payée</th>
-                <th className="border border-gray-300 px-4 py-2">Retrait</th>
-                <th className="border border-gray-300 px-4 py-2">Client</th>
-                <th className="border border-gray-300 px-4 py-2"></th>
-              </tr>
-            </thead>
-            <tbody>
-              {retraitRows.map((row, index) => (
-                <tr key={index}>
-                  <td className="border border-gray-300 px-4 py-2">
-                    <button type="button" onClick={() => removeRow('retrait', index)} className="text-red-500 hover:text-red-700">
-                      <Trash size={20} />
-                    </button>
-                  </td>
-                  <td className="border border-gray-300 px-4 py-2">
-                    <div className="relative">
-                      <input
-                        type="text"
-                        value={row.retraitPayee}
-                        onChange={(e) => updateRow('retrait', index, 'retraitPayee', e.target.value)}
-                        className="w-full px-2 py-1 pr-8 border-none"
-                      />
-                      <VoiceInputButton 
-                        onVoiceInput={() => handleVoiceInputWithFeedback(
-                          (value: string) => updateRow('retrait', index, 'retraitPayee', value),
-                          true
-                        )}
-                        showButton={voiceLanguage !== 'none'}
-                        voiceLanguage={voiceLanguage}
-                      />
-                    </div>
-                  </td>
-                  <td className="border border-gray-300 px-4 py-2">
-                    <div className="relative">
-                      <input
-                        type="text"
-                        value={row.retrait}
-                        onChange={(e) => updateRow('retrait', index, 'retrait', e.target.value)}
-                        className="w-full px-2 py-1 pr-8 border-none"
-                      />
-                      <VoiceInputButton 
-                        onVoiceInput={() => handleVoiceInputWithFeedback(
-                          (value: string) => updateRow('retrait', index, 'retrait', value),
-                          true
-                        )}
-                        showButton={voiceLanguage !== 'none'}
-                        voiceLanguage={voiceLanguage}
-                      />
-                    </div>
-                  </td>
-                  <td className="border border-gray-300 px-4 py-2">
-                    <div className="relative">
-                      <input
-                        type="text"
-                        value={row.client}
-                        onChange={(e) => updateRow('retrait', index, 'client', e.target.value)}
-                        className="w-full px-2 py-1 pr-8 border-none"
-                      />
-                      <VoiceInputButton 
-                        onVoiceInput={() => handleVoiceInputWithFeedback(
-                          (value: string) => updateRow('retrait', index, 'client', value),
-                          false
-                        )}
-                        showButton={voiceLanguage !== 'none'}
-                        voiceLanguage={voiceLanguage}
-                      />
-                    </div>
-                  </td>
-                  <td className="border border-gray-300 px-4 py-2">
-                    <button type="button" onClick={() => addRow('retrait')} className="text-green-500 hover:text-green-700">
-                      <Plus size={20} />
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          <div className="flex justify-between mt-2">
-            <div>
-              <strong>Total Retrait: </strong>
-              <span id="totalRetrait">
-                {retraitRows.reduce((total, row) => total + parseFloat(row.retrait || '0'), 0).toFixed(1)}
-              </span>
-            </div>
-            <div>
-              <strong>Total Retrait Payée: </strong>
-              <span id="totalRetraitPayee">
-                {retraitRows.reduce((total, row) => {
-                  if (row.retraitPayee === 'OK') {
-                    return total + parseFloat(row.retrait || '0')
-                  }
-                  return total + parseFloat(row.retraitPayee || '0')
-                }, 0).toFixed(1)}
-              </span>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={handleReset}
+                className="p-3 text-gray-500 hover:text-gray-700"
+              >
+                <RotateCcw size={24} />
+              </button>
+              <button
+                type="button"
+                onClick={handleRestore}
+                className={`p-3 ${
+                  previousFormState 
+                    ? 'text-blue-500 hover:text-blue-700' 
+                    : 'text-gray-300'
+                }`}
+                disabled={!previousFormState}
+              >
+                <History size={24} />
+              </button>
             </div>
           </div>
-          {errors.retrait && <span className="text-red-500 text-sm">{errors.retrait}</span>}
-        </div>
-
-        <div className="flex items-center mt-6">
-          <button type="submit" className="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded">
-            Calcule
-          </button>
-          <div className="flex-grow">
-            <h2 id="res" className="text-center text-3xl font-bold text-green-600">{result}</h2>
-          </div>
-          <button type="button" onClick={handleReset} className="bg-gray-500 hover:bg-gray-700 text-white font-bold py-2 px-4 rounded">
-            Reset
-          </button>
         </div>
       </form>
+
+      {/* Mobile-friendly delete confirmation */}
+      {showDeleteConfirm && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg p-6 w-full max-w-sm mx-auto">
+            <h3 className="text-lg font-bold mb-4">Delete Form</h3>
+            <p className="text-gray-600 mb-6">
+              Are you sure you want to delete this form? This action cannot be undone.
+            </p>
+            <div className="flex justify-end gap-4">
+              <button
+                onClick={() => setShowDeleteConfirm(false)}
+                className="px-4 py-2 text-gray-600"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => {
+                  setShowDeleteConfirm(false)
+                  onDeleteForm()
+                }}
+                className="px-4 py-2 bg-red-500 text-white rounded"
+              >
+                Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
